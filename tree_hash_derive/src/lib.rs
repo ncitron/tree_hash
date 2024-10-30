@@ -3,7 +3,7 @@ use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
 use std::convert::TryInto;
-use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Expr, Meta};
+use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Expr, Meta, Ident};
 
 /// The highest possible union selector value (higher values are reserved for backwards compatible
 /// extensions).
@@ -89,14 +89,14 @@ impl EnumBehaviour {
 fn get_hashable_fields(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
     get_hashable_fields_and_their_caches(struct_data)
         .into_iter()
-        .map(|(ident, _, _)| ident)
+        .map(|(ident, _)| ident)
         .collect()
 }
 
 /// Return a Vec of the hashable fields of a struct, and each field's type and optional cache field.
 fn get_hashable_fields_and_their_caches(
     struct_data: &syn::DataStruct,
-) -> Vec<(&syn::Ident, syn::Type, Option<syn::Ident>)> {
+) -> Vec<(&syn::Ident, syn::Type)> {
     struct_data
         .fields
         .iter()
@@ -108,39 +108,9 @@ fn get_hashable_fields_and_their_caches(
                     .ident
                     .as_ref()
                     .expect("tree_hash_derive only supports named struct fields");
-                let opt_cache_field = get_cache_field_for(f);
-                Some((ident, f.ty.clone(), opt_cache_field))
+                Some((ident, f.ty.clone()))
             }
         })
-        .collect()
-}
-
-/// Parse the cached_tree_hash attribute for a field.
-///
-/// Extract the cache field name from `#[cached_tree_hash(cache_field_name)]`
-///
-/// Return `Some(cache_field_name)` if the field has a cached tree hash attribute,
-/// or `None` otherwise.
-fn get_cache_field_for(field: &syn::Field) -> Option<syn::Ident> {
-    use syn::{MetaList, NestedMeta};
-
-    let parsed_attrs = cached_tree_hash_attr_metas(&field.attrs);
-    if let [Meta::List(MetaList { nested, .. })] = &parsed_attrs[..] {
-        nested.iter().find_map(|x| match x {
-            NestedMeta::Meta(Meta::Path(path)) => path.get_ident().cloned(),
-            _ => None,
-        })
-    } else {
-        None
-    }
-}
-
-/// Process the `cached_tree_hash` attributes from a list of attributes into structured `Meta`s.
-fn cached_tree_hash_attr_metas(attrs: &[Attribute]) -> Vec<Meta> {
-    attrs
-        .iter()
-        .filter(|attr| attr.path.is_ident("cached_tree_hash"))
-        .flat_map(|attr| attr.parse_meta())
         .collect()
 }
 
@@ -149,8 +119,8 @@ fn cached_tree_hash_attr_metas(attrs: &[Attribute]) -> Vec<Meta> {
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_hashing(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("tree_hash")
-            && attr.tokens.to_string().replace(' ', "") == "(skip_hashing)"
+        attr.path().is_ident("tree_hash")
+            && attr.parse_args::<Ident>().unwrap().to_string() == "skip_hashing"
     })
 }
 
@@ -168,7 +138,7 @@ fn parse_tree_hash_fields(
                 .attrs
                 .iter()
                 .filter(|attr| {
-                    attr.path
+                    attr.path()
                         .get_ident()
                         .map_or(false, |ident| *ident == "tree_hash")
                 })
@@ -181,8 +151,7 @@ fn parse_tree_hash_fields(
             let field_opts = field_opts_candidates
                 .first()
                 .map(|attr| {
-                    let meta = attr.parse_meta().unwrap();
-                    FieldOpts::from_meta(&meta).unwrap()
+                    FieldOpts::from_meta(&attr.meta).unwrap()
                 })
                 .unwrap_or_default();
 
@@ -283,7 +252,7 @@ fn tree_hash_derive_struct_container(item: &DeriveInput, struct_data: &DataStruc
                 let mut hasher = tree_hash::MerkleHasher::with_leaves(#num_leaves);
 
                 #(
-                    hasher.write(self.#idents.tree_hash_root().as_bytes())
+                    hasher.write(self.#idents.tree_hash_root().as_slice())
                         .expect("tree hash derive should not apply too many leaves");
                 )*
 
@@ -336,7 +305,7 @@ fn tree_hash_derive_struct_stable_container(
 
                 #(
                     if self.#idents.is_some() {
-                        hasher.write(self.#idents.tree_hash_root().as_bytes())
+                        hasher.write(self.#idents.tree_hash_root().as_slice())
                             .expect("tree hash derive should not apply too many leaves");
                     }
                 )*
@@ -394,7 +363,7 @@ fn tree_hash_derive_struct_profile(
 
             hashes.push(quote! {
                 if active_fields.get(index) {
-                    hasher.write(self.#ident.tree_hash_root().as_bytes())
+                    hasher.write(self.#ident.tree_hash_root().as_slice())
                         .expect("tree hash derive should not apply too many leaves");
                 }
             });
@@ -403,7 +372,7 @@ fn tree_hash_derive_struct_profile(
                 active_fields.set(#index, true).expect("Should not be out of bounds");
             });
             hashes.push(quote! {
-                hasher.write(self.#ident.tree_hash_root().as_bytes())
+                hasher.write(self.#ident.tree_hash_root().as_slice())
                     .expect("tree hash derive should not apply too many leaves");
             });
         }
@@ -499,13 +468,13 @@ fn tree_hash_derive_enum_transparent(
     let output = quote! {
         impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
             fn tree_hash_type() -> tree_hash::TreeHashType {
-                #(
-                    assert_eq!(
-                        #type_exprs,
-                        tree_hash::TreeHashType::#inner_container_type,
-                        "all variants must be of container type"
-                    );
-                )*
+                // #(
+                //     assert_eq!(
+                //         #type_exprs,
+                //         tree_hash::TreeHashType::#inner_container_type,
+                //         "all variants must be of container type: {:#?}", #type_exprs
+                //     );
+                // )*
                 tree_hash::TreeHashType::#inner_container_type
             }
 

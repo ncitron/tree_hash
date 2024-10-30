@@ -1,6 +1,6 @@
 [package]
 name = "tree_hash"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "Efficient Merkle-hashing as used in Ethereum consensus"
 license = "Apache-2.0"
@@ -11,17 +11,17 @@ keywords = ["ethereum"]
 categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-ethereum-types = "0.14.1"
-ethereum_hashing = "0.6.0"
+alloy-primitives = "0.7.0"
+ethereum_hashing = "0.7.0"
 smallvec = "1.6.1"
 
 [dev-dependencies]
 rand = "0.8.5"
-tree_hash_derive = { path = "../tree_hash_derive", version = "0.6.0" }
-ethereum_ssz = { git = "https://github.com/macladson/ethereum_ssz", branch = "stable-container" }
-ethereum_ssz_derive = { git = "https://github.com/macladson/ethereum_ssz", branch = "stable-container" }
-ssz_types = { git = "https://github.com/macladson/ssz_types", branch = "stable-container" }
 typenum = "1.12.0"
+tree_hash_derive = { git = "https://github.com/ncitron/tree_hash", branch = "stable-container" }
+ethereum_ssz = { git = "https://github.com/ncitron/ethereum_ssz", branch = "stable-container"  }
+ethereum_ssz_derive = { git = "https://github.com/ncitron/ethereum_ssz", branch = "stable-container"  }
+ssz_types = { git = "https://github.com/ncitron/ssz_types", branch = "stable-container"  }
 
 [features]
-arbitrary = ["ethereum-types/arbitrary"]
+arbitrary = ["alloy-primitives/arbitrary"]
